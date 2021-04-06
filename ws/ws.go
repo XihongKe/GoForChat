@@ -16,11 +16,13 @@ const (
 	MsgTypeGetUser
 	MsgTypeUserInfo
 	MsgTypeSaveUserInfo
+	MsgTypeGroupCreate
 )
 
 // ClientManager 客户端管理器
 type ClientManager struct {
 	Clients    map[string]*Client
+	Groups     map[string]*user.Group
 	Broadcast  chan Request
 	Register   chan *Client
 	Unregister chan *Client
@@ -54,6 +56,7 @@ var Manager = ClientManager{
 	Register:   make(chan *Client),
 	Unregister: make(chan *Client),
 	Clients:    make(map[string]*Client),
+	Groups: 	make(map[string]*user.Group),
 }
 
 /**
@@ -103,6 +106,11 @@ func (manager *ClientManager) Start() {
 				err := SaveUserInfoHandler(request, &MessageStruct)
 				if err != nil {
 					log.Printf("SaveUserInfoHandler错误：%v", err)
+				}
+			case MsgTypeGroupCreate:
+				err := GroupCreateHandler(request, &MessageStruct)
+				if err != nil {
+					log.Printf("GroupCreateHandler错误：%s", err)
 				}
 			default:
 				log.Printf("无效的Type类型：%s", request.Message)
@@ -169,6 +177,7 @@ func UpgradeHandler(c *gin.Context) {
 	go client.Write()
 }
 
+// broadcast 向所有客户端广播消息
 func broadcast(message []byte){
 	for _, conn := range Manager.Clients {
 		conn.Send <- message
