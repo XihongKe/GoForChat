@@ -9,16 +9,6 @@ import (
 	"net/http"
 )
 
-const (
-	_ = iota
-	MsgTypeUser
-	MsgTypeGroup
-	MsgTypeGetUser
-	MsgTypeUserInfo
-	MsgTypeSaveUserInfo
-	MsgTypeGroupCreate
-)
-
 // ClientManager 客户端管理器
 type ClientManager struct {
 	Clients    map[string]*Client
@@ -41,6 +31,7 @@ type Message struct {
 	Receiver  string `json:"receiver,omitempty"`
 	Type      int    `json:"type,omitempty"`
 	Sender    string `json:"sender,omitempty"`
+	FromGroup string `json:"from_group,omitempty"` // 来自群聊的id，如果是私聊则为空
 	Content   string `json:"content,omitempty"`
 }
 
@@ -79,9 +70,23 @@ func (manager *ClientManager) Start() {
 		case client := <-Manager.Unregister: // 用户离开队列
 			log.Printf("用户离开:%v", client.ID)
 			if _, ok := Manager.Clients[client.ID]; ok {
+				// 广播用户离开的信息
+				m, _ := json.Marshal(Message{
+					Receiver: "",
+					Type:     MsgTypeUserLeave,
+					Sender:   "SYSTEM",
+					Content:  client.ID,
+				})
+				broadcast(m)
+				// 删除群组中成员
+				for _, group := range groupList(client.ID){
+					group.LeaveChan <- client.ID
+				}
+				// 资源销毁
 				close(client.Send)
 				delete(Manager.Clients, client.ID)
 			}
+
 
 		case request := <-Manager.Broadcast: // 处理消息发送
 			MessageStruct := Message{}
@@ -119,10 +124,12 @@ func (manager *ClientManager) Start() {
 		}
 	}
 }
+
 func (c *Client) Read() {
 	defer func() {
 		Manager.Unregister <- c
 		c.Socket.Close()
+		log.Printf("%s离开,关闭读取", c.ID)
 	}()
 
 	for {
@@ -140,6 +147,7 @@ func (c *Client) Read() {
 
 func (c *Client) Write() {
 	defer func() {
+		log.Printf("%s离开,关闭写入", c.ID)
 		_ = c.Socket.Close()
 	}()
 
@@ -155,6 +163,13 @@ func (c *Client) Write() {
 			c.Socket.WriteMessage(websocket.TextMessage, message)
 		}
 	}
+}
+
+// Close 关闭连接 处理用户离开等逻辑
+func (c *Client) Close(){
+
+	close(c.Send)
+	delete(Manager.Clients, c.ID)
 }
 
 //UpgradeHandler 处理创建用户、启动读写协程等逻辑

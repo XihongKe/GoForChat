@@ -11,8 +11,21 @@ import (
 
 //接收消息并进行判断处理的逻辑
 
+// 消息类型
+const (
+	_ = iota
+	MsgTypeUser
+	MsgTypeGroup
+	MsgTypeGetUser
+	MsgTypeUserInfo
+	MsgTypeSaveUserInfo
+	MsgTypeGroupCreate
+	MsgTypeUserLeave
+)
+
 // GroupMsgHandler 处理发给群组的消息
 func GroupMsgHandler(request Request, messageStruct *Message) error {
+	log.Printf("当前群组 %v", Manager.Groups)
 	group, ok := Manager.Groups[messageStruct.Receiver]
 	if !ok {
 		return errors.New(fmt.Sprintf("消息接收者无效：%s", messageStruct.Receiver))
@@ -21,6 +34,7 @@ func GroupMsgHandler(request Request, messageStruct *Message) error {
 		Type:    MsgTypeGroup,
 		Sender:  request.Client.ID,
 		Content: messageStruct.Content,
+		FromGroup: messageStruct.Receiver,
 	}
 	for k := range group.Member {
 		conn, ok := Manager.Clients[group.Member[k].ID]
@@ -102,7 +116,6 @@ func GroupCreateHandler(request Request, messageStruct *Message) error {
 	}
 	var gb reqBody
 	_ = json.Unmarshal([]byte(messageStruct.Content), &gb)
-	log.Printf("创建群组，成员：%v", gb.MemberList)
 	group, err := user.NewGroup(request.Client.User, gb.MemberList, gb.Name)
 	if err != nil {
 		return errors.New(fmt.Sprintf("创建群组失败：%s", err))
@@ -153,16 +166,16 @@ func groupsBroadcast() {
 }
 
 // groupList 获取用户参与的群组列表
-func groupList(ID string) (gs []user.Group) {
+func groupList(uid string) (gs []user.Group) {
 	for k1 := range Manager.Groups {
 		// 用户是群主
-		if Manager.Groups[k1].Owner.ID == ID {
+		if Manager.Groups[k1].Owner.ID == uid {
 			gs = append(gs, *Manager.Groups[k1])
-			break
+			continue
 		}
 		for _, m := range Manager.Groups[k1].Member {
 			// 用户是群成员
-			if m.ID == ID {
+			if m.ID == uid {
 				gs = append(gs, *Manager.Groups[k1])
 				break
 			}
